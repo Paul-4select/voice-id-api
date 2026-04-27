@@ -60,6 +60,20 @@ class ExtractResponse(BaseModel):
     embedding_shape: List[int]
 
 
+class ExtractChannelRequest(BaseModel):
+    audio_url: str = Field(..., description="URL stereo-записи (WAV/MP3)")
+    channel: int = Field(..., description="Канал для извлечения: 0 (левый) или 1 (правый)")
+    callback_url: Optional[str] = Field(None, description="URL вебхука для дублирования результата")
+
+
+class ExtractChannelResponse(BaseModel):
+    status: str
+    channel: int
+    embedding: List[float]
+    embedding_string: str
+    embedding_shape: List[int]
+
+
 class EmployeeVector(BaseModel):
     id: str
     name: str
@@ -137,6 +151,18 @@ def _process_extract(embedding: list, shape: list, callback_url: str):
     _send_callback(callback_url, payload)
 
 
+def _process_extract_channel(channel: int, embedding: list, embedding_string: str, shape: list, callback_url: str):
+    payload = {
+        "status": "ok",
+        "channel": channel,
+        "embedding": embedding,
+        "embedding_string": embedding_string,
+        "embedding_shape": shape,
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _send_callback(callback_url, payload)
+
+
 # ====== ЭНДПОИНТЫ ======
 
 @app.get("/health")
@@ -177,6 +203,59 @@ def extract_file(audio: UploadFile = File(...), callback_url: Optional[str] = Fo
         return response
     except Exception as e:
         raise HTTPException(400, f"Ошибка извлечения: {str(e)}")
+    finally:
+        os.unlink(tmp_path)
+
+
+@app.post("/extract-channel", response_model=ExtractChannelResponse, dependencies=[Depends(verify_token)])
+def extract_channel(req: ExtractChannelRequest, background_tasks: BackgroundTasks):
+    if req.channel not in (0, 1):
+        raise HTTPException(400, "channel должен быть 0 или 1")
+    try:
+        emb = voice_service.extract_channel_from_url(req.audio_url, req.channel)
+        emb_list = emb.tolist()
+        emb_str = ", ".join(str(x) for x in emb_list)
+        response = ExtractChannelResponse(
+            status="ok",
+            channel=req.channel,
+            embedding=emb_list,
+            embedding_string=emb_str,
+            embedding_shape=list(emb.shape),
+        )
+        if req.callback_url:
+            background_tasks.add_task(
+                _process_extract_channel, req.channel, emb_list, emb_str, list(emb.shape), req.callback_url
+            )
+        return response
+    except Exception as e:
+        raise HTTPException(400, f"Ошибка извлечения канала: {str(e)}")
+
+
+@app.post("/extract-channel/file", dependencies=[Depends(verify_token)])
+def extract_channel_file(audio: UploadFile = File(...), channel: int = Form(...), callback_url: Optional[str] = Form(None)):
+    if channel not in (0, 1):
+        raise HTTPException(400, "channel должен быть 0 или 1")
+    tmp_path = f"/tmp/extract_ch_{audio.filename}"
+    with open(tmp_path, "wb") as buffer:
+        shutil.copyfileobj(audio.file, buffer)
+    try:
+        emb = voice_service.extract_channel_from_file(tmp_path, channel)
+        emb_list = emb.tolist()
+        emb_str = ", ".join(str(x) for x in emb_list)
+        response = {
+            "status": "ok",
+            "channel": channel,
+            "embedding": emb_list,
+            "embedding_string": emb_str,
+            "embedding_shape": list(emb.shape),
+        }
+        if callback_url:
+            background_tasks.add_task(
+                _process_extract_channel, channel, emb_list, emb_str, list(emb.shape), callback_url
+            )
+        return response
+    except Exception as e:
+        raise HTTPException(400, f"Ошибка извлечения канала: {str(e)}")
     finally:
         os.unlink(tmp_path)
 

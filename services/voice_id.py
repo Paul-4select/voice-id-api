@@ -66,6 +66,42 @@ class VoiceIDService:
                 emb = self.model.encode_batch(signal)
             return emb.squeeze().cpu().numpy()
 
+    def extract_channel_from_url(self, url: str, channel: int) -> np.ndarray:
+        """Извлекает вектор из указанного канала (0 или 1) стерео-записи по URL."""
+        if channel not in (0, 1):
+            raise ValueError("channel должен быть 0 или 1")
+        with self.lock:
+            path = self._download(url)
+            try:
+                signal, sr = torchaudio.load(path)
+                if signal.shape[0] != 2:
+                    raise ValueError("Ожидается stereo файл (2 канала)")
+                ch_signal = signal[channel:channel + 1]
+                if sr != 16000:
+                    resampler = torchaudio.transforms.Resample(sr, 16000)
+                    ch_signal = resampler(ch_signal)
+                with torch.no_grad():
+                    emb = self.model.encode_batch(ch_signal)
+                return emb.squeeze().cpu().numpy()
+            finally:
+                os.unlink(path)
+
+    def extract_channel_from_file(self, file_path: str, channel: int) -> np.ndarray:
+        """Извлекает вектор из указанного канала (0 или 1) стерео-файла."""
+        if channel not in (0, 1):
+            raise ValueError("channel должен быть 0 или 1")
+        with self.lock:
+            signal, sr = torchaudio.load(file_path)
+            if signal.shape[0] != 2:
+                raise ValueError("Ожидается stereo файл (2 канала)")
+            ch_signal = signal[channel:channel + 1]
+            if sr != 16000:
+                resampler = torchaudio.transforms.Resample(sr, 16000)
+                ch_signal = resampler(ch_signal)
+            with torch.no_grad():
+                emb = self.model.encode_batch(ch_signal)
+            return emb.squeeze().cpu().numpy()
+
     def identify(self, call_url: str, employee_channel: int, employee_vectors: list) -> dict:
         """
         employee_vectors: [{"id": "emp1", "name": "Ivan", "embedding": np.ndarray}, ...]
