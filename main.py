@@ -63,6 +63,7 @@ class ExtractResponse(BaseModel):
 class ExtractChannelRequest(BaseModel):
     audio_url: str = Field(..., description="URL stereo-записи (WAV/MP3)")
     channel: int = Field(..., description="Канал для извлечения: 0 (левый) или 1 (правый)")
+    call_id: Optional[str] = Field(None, description="ID звонка для связи с webhook-ответом")
     callback_url: Optional[str] = Field(None, description="URL вебхука для дублирования результата")
 
 
@@ -151,9 +152,10 @@ def _process_extract(embedding: list, shape: list, callback_url: str):
     _send_callback(callback_url, payload)
 
 
-def _process_extract_channel(channel: int, embedding: list, embedding_string: str, shape: list, callback_url: str):
+def _process_extract_channel(call_id: Optional[str], channel: int, embedding: list, embedding_string: str, shape: list, callback_url: str):
     payload = {
         "status": "ok",
+        "call_id": call_id,
         "channel": channel,
         "embedding": embedding,
         "embedding_string": embedding_string,
@@ -224,7 +226,7 @@ def extract_channel(req: ExtractChannelRequest, background_tasks: BackgroundTask
         )
         if req.callback_url:
             background_tasks.add_task(
-                _process_extract_channel, req.channel, emb_list, emb_str, list(emb.shape), req.callback_url
+                _process_extract_channel, req.call_id, req.channel, emb_list, emb_str, list(emb.shape), req.callback_url
             )
         return response
     except Exception as e:
@@ -232,28 +234,46 @@ def extract_channel(req: ExtractChannelRequest, background_tasks: BackgroundTask
 
 
 @app.post("/extract-channel/file", dependencies=[Depends(verify_token)])
-def extract_channel_file(audio: UploadFile = File(...), channel: int = Form(...), callback_url: Optional[str] = Form(None)):
-    if channel not in (0, 1):
-        raise HTTPException(400, "channel должен быть 0 или 1")
+def extract_channel_file(
+    request: Request,
+    audio: UploadFile = File(...),
+    channel: Optional[str] = Form(None),
+    call_id: Optional[str] = Form(None),
+    callback_url: Optional[str] = Form(None),
+):
+    # Bubble often passes params as query string when uploading files
+    ch_val = channel if channel is not None else request.query_params.get("channel")
+    cid_val = call_id if call_id is not None else request.query_params.get("call_id")
+    if ch_val is None:
+        raise HTTPException(400, "channel is required (pass as query param ?channel=0 or form field)")
+    try:
+        ch = int(ch_val)
+    except ValueError:
+        raise HTTPException(400, f"channel must be integer 0 or 1, got: {ch_val}")
+    if ch not in (0, 1):
+        raise HTTPException(400, "channel must be 0 or 1")
+
     tmp_path = f"/tmp/extract_ch_{audio.filename}"
     with open(tmp_path, "wb") as buffer:
         shutil.copyfileobj(audio.file, buffer)
     try:
-        emb = voice_service.extract_channel_from_file(tmp_path, channel)
+        emb = voice_service.extract_channel_from_file(tmp_path, ch)
         emb_list = emb.tolist()
         emb_str = ", ".join(str(x) for x in emb_list)
         response = {
             "status": "ok",
-            "channel": channel,
+            "channel": ch,
             "embedding": emb_list,
             "embedding_string": emb_str,
             "embedding_shape": list(emb.shape),
         }
         if callback_url:
             background_tasks.add_task(
-                _process_extract_channel, channel, emb_list, emb_str, list(emb.shape), callback_url
+                _process_extract_channel, cid_val, ch, emb_list, emb_str, list(emb.shape), callback_url
             )
         return response
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     except Exception as e:
         raise HTTPException(400, f"Ошибка извлечения канала: {str(e)}")
     finally:
