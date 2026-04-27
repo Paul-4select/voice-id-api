@@ -69,6 +69,7 @@ class ExtractChannelRequest(BaseModel):
 
 class ExtractChannelResponse(BaseModel):
     status: str
+    call_id: Optional[str]
     channel: int
     embedding: List[float]
     embedding_string: str
@@ -219,6 +220,7 @@ def extract_channel(req: ExtractChannelRequest, background_tasks: BackgroundTask
         emb_str = ", ".join(str(x) for x in emb_list)
         response = ExtractChannelResponse(
             status="ok",
+            call_id=req.call_id,
             channel=req.channel,
             embedding=emb_list,
             embedding_string=emb_str,
@@ -262,6 +264,7 @@ def extract_channel_file(
         emb_str = ", ".join(str(x) for x in emb_list)
         response = {
             "status": "ok",
+            "call_id": cid_val,
             "channel": ch,
             "embedding": emb_list,
             "embedding_string": emb_str,
