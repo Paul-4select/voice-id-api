@@ -238,6 +238,7 @@ def extract_channel(req: ExtractChannelRequest, background_tasks: BackgroundTask
 @app.post("/extract-channel/file", dependencies=[Depends(verify_token)])
 def extract_channel_file(
     request: Request,
+    background_tasks: BackgroundTasks,
     audio: UploadFile = File(...),
     channel: Optional[str] = Form(None),
     call_id: Optional[str] = Form(None),
