@@ -85,6 +85,8 @@ class EmployeeVector(BaseModel):
     @classmethod
     def parse_embedding(cls, v):
         if isinstance(v, str):
+            if not v.strip():
+                return []
             return [float(x.strip()) for x in v.split(",")]
         return v
 
@@ -293,6 +295,8 @@ def identify(req: IdentifyRequest, background_tasks: BackgroundTasks):
 
     vectors = []
     for ev in req.employee_vectors:
+        if not ev.embedding or len(ev.embedding) != 192:
+            continue
         vectors.append({
             "id": ev.id,
             "name": ev.name,
