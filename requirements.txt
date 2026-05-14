@@ -4,6 +4,7 @@ python-multipart==0.0.17
 pydantic==2.9.2
 huggingface-hub==0.25.2
 speechbrain==1.0.2
+silero-vad==5.1.2
 numpy==1.26.4
 soundfile==0.13.1
 python-dotenv==1.0.1

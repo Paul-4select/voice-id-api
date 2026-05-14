@@ -13,8 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt && \
     find /usr/local/lib/python3.11/site-packages -type d -name tests -exec rm -rf {} + 2>/dev/null || true && \
     find /usr/local/lib/python3.11/site-packages -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
-# Pre-download model during build so container starts instantly
+# Pre-download models during build so container starts instantly
 RUN python -c "from speechbrain.pretrained import EncoderClassifier; EncoderClassifier.from_hparams(source='speechbrain/spkrec-ecapa-voxceleb', savedir='/root/.cache/speechbrain')"
+RUN python -c "from silero_vad import load_silero_vad; load_silero_vad()"
 
 COPY . .
 
